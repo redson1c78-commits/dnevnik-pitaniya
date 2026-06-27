@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Дневник питания — итоговая версия с экспортом в Excel</title>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f7fb;
+            margin: 20px;
+            color: #2c3e50;
+        }
+        h2 { text-align: center; margin-bottom: 10px; }
+        .tab-bar { display: flex; justify-content: center; gap: 5px; margin-bottom: 20px; }
+        .tab-btn {
+            padding: 10px 25px; border: 1px solid #bdc3c7;
+            background: #ecf0f1; font-weight: 600; cursor: pointer;
+            border-radius: 8px 8px 0 0; font-size: 15px; transition: 0.2s;
+        }
+        .tab-btn.active {
+            background: white; border-bottom: 2px solid white;
+            color: #2c3e50; box-shadow: 0 -2px 6px rgba(0,0,0,0.05);
+        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .legend {
+            display: flex; justify-content: center; gap: 25px;
+            margin: 15px 0; flex-wrap: wrap; font-size: 14px;
+        }
+        .legend span::before { content: "●"; margin-right: 5px; font-size: 18px; }
+        .legend .green::before  { color: #27ae60; }
+        .legend .yellow::before { color: #f39c12; }
+        .legend .red::before    { color: #e74c3c; }
+        .legend .gray::before   { color: #95a5a6; }
+
+        .input-block {
+            max-width: 1300px; margin: 20px auto;
+            background: white; padding: 15px; border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        textarea {
+            width: 100%; height: 140px;
+            border: 1px solid #ccd1d9; border-radius: 8px;
+            padding: 10px; font-family: 'Consolas', monospace;
+            font-size: 13px; resize: vertical; box-sizing: border-box;
+        }
+        .btn-row { display: flex; gap: 10px; margin-top: 12px; justify-content: flex-end; flex-wrap: wrap; }
+        button {
+            padding: 8px 20px; border: none; border-radius: 6px;
+            font-weight: 600; cursor: pointer; font-size: 14px; transition: 0.2s;
+        }
+        .btn-primary { background: #2e86de; color: white; }
+        .btn-primary:hover { background: #1e6fbf; }
+        .btn-danger { background: #e74c3c; color: white; }
+        .btn-danger:hover { background: #c0392b; }
+        .btn-secondary { background: #bdc3c7; color: #2c3e50; }
+        .btn-secondary:hover { background: #a6acaf; }
+        .btn-success { background: #27ae60; color: white; }
+        .btn-success:hover { background: #1e8449; }
+
+        table {
+            border-collapse: collapse; width: 100%; max-width: 1300px;
+            margin: 0 auto; background: white;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08); border-radius: 12px; overflow: hidden;
+        }
+        th {
+            background: #34495e; color: white; padding: 10px 6px;
+            font-weight: 600; font-size: 14px; text-align: center;
+        }
+        td {
+            border: 1px solid #e1e8f0; padding: 8px 6px;
+            text-align: center; font-size: 13px; vertical-align: middle;
+        }
+        .date-group { background: #f0f4f8; font-weight: 600; }
+        .meal-name { text-align: left; padding-left: 10px; }
+        .food-items { text-align: left; max-width: 250px; }
+        .total-row { background: #ecf0f1; font-weight: 700; border-top: 2px solid #7f8c8d; }
+        .approx { font-style: italic; color: #7f8c8d; }
+
+        .good   { background-color: #d5f5e3; }
+        .warn   { background-color: #fef9e7; }
+        .bad    { background-color: #fadbd8; }
+        .nodata { background-color: #ebedef; color: #7f8c8d; }
+
+        .summary-footer { background: #f8f9fa; font-weight: 700; border-top: 3px solid #34495e; }
+    </style>
+</head>
+<body>
+<h2>📊 Дневник питания</h2>
+
+<div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('journal')">Дневной журнал</button>
+    <button class="tab-btn" onclick="switchTab('summary')">Сводка итогов</button>
+</div>
+
+<div class="legend">
+    <span class="green">В норме (±5%)</span>
+    <span class="yellow">Недобор (>5%)</span>
+    <span class="red">Перебор (>5%)</span>
+    <span class="gray">Нет данных</span>
+</div>
+
+<div id="tab-journal" class="tab-content active">
+    <div class="input-block">
+        <textarea id="excelInput" placeholder="Вставьте строки из Excel (разделитель – точка с запятой), например:
+09.06;Вт;Выходной;Завтрак;KFC, ай-роллы, йогурт, яйца, бутерброды;~30;~25;~60;~600;
+;;;Обед;Нет данных;;;;;
+;;;Ужин;Нет данных;;;;;
+;;;ИТОГО;;~124–125;;;~2150;150/90/250/2600"></textarea>
+        <div class="btn-row">
+            <button class="btn-primary" onclick="addData()">Добавить данные</button>
+            <button class="btn-secondary" onclick="clearInput()">Очистить поле</button>
+            <button class="btn-danger" onclick="resetTable()">Сбросить всю таблицу</button>
+            <button class="btn-success" onclick="exportToExcel()">📥 Выгрузка в Excel</button>
+        </div>
+        <div style="margin-top:8px; font-size:13px; color:#555;">
+            ✅ Каждая строка — новый приём (или итог).<br>
+            ✅ Если дата пустая — приём относится к предыдущей дате.<br>
+            ✅ Тип дня берётся из первой строки с непустым типом для этой даты.
+        </div>
+    </div>
+
+    <table id="nutrition-table">
+        <thead>
+            <tr><th>Дата</th><th>День</th><th>Тип</th><th>Приём</th><th>Продукты</th><th>Белки</th><th>Жиры</th><th>Углеводы</th><th>Калории</th><th>Норма (цель)</th></tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<div id="tab-summary" class="tab-content">
+    <table id="summary-table">
+        <thead>
+            <tr><th>Дата</th><th>День</th><th>Тип</th><th>Белки</th><th>Жиры</th><th>Углеводы</th><th>Калории</th><th>Норма (цель)</th></tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<script>
+    // ---------- НОРМЫ ----------
+    const NORMS = {
+        'Выходной':      { p: 150, f: 90,  c: 250, cal: 2600 },
+        'Тренировочный': { p: 170, f: 100, c: 400, cal: 3200 }
+    };
+
+    let days = [];
+
+    const initialDays = [
+        {
+            date: '09.06', day: 'Вт', type: 'Выходной',
+            meals: [
+                { meal: 'Завтрак', food: 'KFC, ай-роллы, йогурт, яйца, бутерброды', p:'~30', f:'~25', c:'~60', cal:'~600' },
+                { meal: 'Обед', food: 'Нет данных', p:'', f:'', c:'', cal:'' },
+                { meal: 'Ужин', food: 'Нет данных', p:'', f:'', c:'', cal:'' }
+            ],
+            total: { p:'~124–125', f:'', c:'', cal:'~2150' },
+            normDisplay: '150/90/250/2600'
+        },
+        {
+            date: '10.06', day: 'Ср', type: 'Тренировочный',
+            meals: [],
+            total: { p:'~158', f:'', c:'', cal:'3703' },
+            normDisplay: '170/100/400/3200'
+        },
+        {
+            date: '11.06', day: 'Чт', type: 'Выходной',
+            meals: [
+                { meal: 'Завтрак', food: 'Овсянка 100 г + молоко 300 мл + варенье 20 г + кофе', p:'~22', f:'~10', c:'~65', cal:'~600' },
+                { meal: 'Перекус', food: 'Греческий йогурт 150 г', p:'11', f:'5', c:'10', cal:'140' },
+                { meal: 'Обед', food: 'Гуляш + макароны', p:'40', f:'13', c:'57', cal:'530' },
+                { meal: 'Перекус', food: 'Черешня 280 г', p:'3', f:'1', c:'45', cal:'180' },
+                { meal: 'Ужин', food: 'Салат с тунцом 350 г + сыр Чечил 50 г', p:'40', f:'30', c:'16', cal:'505' },
+                { meal: 'Перекус', food: 'Ацидофилин 500 мл', p:'12', f:'15', c:'20', cal:'250' }
+            ],
+            total: { p:'154', f:'74', c:'213', cal:'2433' },
+            normDisplay: '150/90/250/2600'
+        },
+        {
+            date: '12.06', day: 'Пт', type: 'Тренировочный',
+            meals: [],
+            total: { p:'', f:'', c:'', cal:'' },
+            normDisplay: '170/100/400/3200'
+        },
+        {
+            date: '13.06', day: 'Сб', type: 'Выходной',
+            meals: [
+                { meal: 'Ужин', food: 'Пицца, кешью 100 г, бутерброды, пиво 1,6 л', p:'~61', f:'~83', c:'~138', cal:'~2050' }
+            ],
+            total: { p:'179', f:'', c:'', cal:'3945' },
+            normDisplay: '150/90/250/2600'
+        },
+        {
+            date: '14.06', day: 'Вс', type: 'Выходной',
+            meals: [
+                { meal: 'Завтрак', food: 'Овсянка 70 г + молоко 250 мл + варенье + кофе', p:'~12', f:'~8', c:'~60', cal:'~400' },
+                { meal: 'Обед', food: 'Гречка по-купечески 350 г + маслины 100 г', p:'~34', f:'~44', c:'~47', cal:'~738' },
+                { meal: 'Ужин', food: 'Холодный борщ + котлеты с пюре', p:'27', f:'40', c:'47', cal:'658' },
+                { meal: 'Перекус', food: 'Греческий йогурт 140 г + варенье 20 г', p:'12', f:'3', c:'18', cal:'144' }
+            ],
+            total: { p:'97', f:'~120', c:'191', cal:'2237' },
+            normDisplay: '150/90/250/2600'
+        }
+    ];
+
+    // ---------- УТИЛИТЫ ----------
+    function parseVal(str) {
+        if (!str || str === '' || str.toLowerCase().includes('нет данных')) return null;
+        let cleaned = str.replace(/~/g, '').trim();
+        if (cleaned.includes('–') || cleaned.includes('-')) {
+            let parts = cleaned.split(/[–\-]/);
+            let v1 = parseFloat(parts[0].replace(',', '.'));
+            let v2 = parseFloat(parts[1]?.replace(',', '.'));
+            if (!isNaN(v1) && !isNaN(v2)) return (v1 + v2) / 2;
+            if (!isNaN(v1)) return v1;
+            return null;
+        }
+        let num = parseFloat(cleaned.replace(',', '.'));
+        return isNaN(num) ? null : num;
+    }
+
+    function getNormForDay(type) { return NORMS[type] || null; }
+
+    function getDeviationClass(value, target) {
+        if (value === null || target === null || target === 0) return 'nodata';
+        const diff = (value - target) / target;
+        const absDiff = Math.abs(diff);
+        if (absDiff <= 0.05) return 'good';
+        if (value < target) return 'warn';
+        return 'bad';
+    }
+
+    function getDominantClass(counts) {
+        const classes = ['good', 'warn', 'bad', 'nodata'];
+        let maxCount = 0, dominant = 'nodata';
+        classes.forEach(cls => { if (counts[cls] > maxCount) { maxCount = counts[cls]; dominant = cls; } });
+        return dominant;
+    }
+
+    // ---------- ПАРСЕР ДАННЫХ ИЗ ТЕКСТА ----------
+    function parseInputData(text) {
+        const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+        if (lines.length === 0) return [];
+        const newDays = [];
+        let currentDay = null;
+        for (let line of lines) {
+            line = line.replace(/^["']|["']$/g, '');
+            const cols = line.split(';').map(c => c.trim());
+            if (cols.length < 9) continue;
+            const [date, dayName, type, mealName, products, pVal, fVal, cVal, calVal, normCol] = cols;
+            let isNewDate = date !== '' && date.includes('.');
+            if (isNewDate) {
+                if (currentDay) {
+                    if (!currentDay.total) currentDay.total = { p:'', f:'', c:'', cal:'' };
+                    newDays.push(currentDay);
+                }
+                currentDay = {
+                    date, day: dayName || '',
+                    type: type !== '' ? type : '',
+                    meals: [], total: null, normDisplay: ''
+                };
+            } else if (!currentDay) {
+                continue;
+            } else {
+                if (dayName && dayName !== '') currentDay.day = dayName;
+                if (type && type !== '') currentDay.type = type;
+            }
+            if (!currentDay.type) currentDay.type = '';
+            const meal = mealName;
+            const food = products || '';
+            if (meal.toUpperCase() === 'ИТОГО') {
+                currentDay.total = { p: pVal || '', f: fVal || '', c: cVal || '', cal: calVal || '' };
+                currentDay.normDisplay = normCol || '';
+            } else {
+                currentDay.meals.push({
+                    meal: meal || '', food,
+                    p: pVal || '', f: fVal || '', c: cVal || '', cal: calVal || ''
+                });
+            }
+        }
+        if (currentDay) {
+            if (!currentDay.total) currentDay.total = { p:'', f:'', c:'', cal:'' };
+            newDays.push(currentDay);
+        }
+        return newDays;
+    }
+
+    // ---------- ОТРИСОВКА ТАБЛИЦ ----------
+    function renderJournal() {
+        const tbody = document.querySelector('#nutrition-table tbody');
+        tbody.innerHTML = '';
+        days.forEach(day => {
+            const norm = getNormForDay(day.type);
+            let rowSpanTotal = day.meals.length + 1;
+            let firstRow = true;
+            day.meals.forEach(meal => {
+                let tr = document.createElement('tr');
+                if (firstRow) {
+                    tr.innerHTML += `<td rowspan="${rowSpanTotal}" class="date-group">${day.date}</td>`;
+                    tr.innerHTML += `<td rowspan="${rowSpanTotal}" class="date-group">${day.day}</td>`;
+                    tr.innerHTML += `<td rowspan="${rowSpanTotal}" class="date-group">${day.type}</td>`;
+                    firstRow = false;
+                }
+                tr.innerHTML += `<td class="meal-name">${meal.meal}</td>`;
+                tr.innerHTML += `<td class="food-items">${meal.food}</td>`;
+                ['p','f','c','cal'].forEach(key => {
+                    let raw = meal[key] || '';
+                    let approx = raw.includes('~');
+                    tr.innerHTML += (raw === '' || raw.toLowerCase().includes('нет данных'))
+                        ? '<td class="nodata">—</td>'
+                        : `<td class="${approx ? 'approx' : ''}">${raw}</td>`;
+                });
+                tr.innerHTML += `<td></td>`;
+                tbody.appendChild(tr);
+            });
+            let totalTr = document.createElement('tr');
+            totalTr.classList.add('total-row');
+            if (firstRow) {
+                totalTr.innerHTML += `<td class="date-group">${day.date}</td>`;
+                totalTr.innerHTML += `<td class="date-group">${day.day}</td>`;
+                totalTr.innerHTML += `<td class="date-group">${day.type}</td>`;
+            }
+            totalTr.innerHTML += `<td colspan="2" style="text-align:right; padding-right:10px;">ИТОГО</td>`;
+            ['p','f','c','cal'].forEach(key => {
+                let raw = day.total[key] || '';
+                let val = parseVal(raw);
+                let target = norm ? norm[key] : null;
+                let cls = getDeviationClass(val, target);
+                let display = raw || (val !== null ? val : '—');
+                let approx = raw.includes('~') ? 'approx' : '';
+                totalTr.innerHTML += `<td class="${cls} ${approx}">${display}</td>`;
+            });
+            totalTr.innerHTML += `<td>${day.normDisplay || ''}</td>`;
+            tbody.appendChild(totalTr);
+        });
+    }
+
+    function renderSummary() {
+        const tbody = document.querySelector('#summary-table tbody');
+        tbody.innerHTML = '';
+        const sums = { p: 0, f: 0, c: 0, cal: 0 };
+        const normSums = { p: 0, f: 0, c: 0, cal: 0 };
+        const counts = { p: 0, f: 0, c: 0, cal: 0 };
+        const stats = {
+            p: { good:0, warn:0, bad:0, nodata:0 },
+            f: { good:0, warn:0, bad:0, nodata:0 },
+            c: { good:0, warn:0, bad:0, nodata:0 },
+            cal: { good:0, warn:0, bad:0, nodata:0 }
+        };
+
+        days.forEach(day => {
+            const norm = getNormForDay(day.type);
+            ['p','f','c','cal'].forEach(key => {
+                let raw = day.total[key] || '';
+                let val = parseVal(raw);
+                let target = norm ? norm[key] : null;
+                let cls = getDeviationClass(val, target);
+                stats[key][cls]++;
+                if (val !== null && norm) {
+                    sums[key] += val;
+                    normSums[key] += norm[key];
+                    counts[key]++;
+                }
+            });
+        });
+
+        const averages = {}, avgNorms = {};
+        ['p','f','c','cal'].forEach(key => {
+            averages[key] = counts[key] > 0 ? sums[key] / counts[key] : null;
+            avgNorms[key] = counts[key] > 0 ? normSums[key] / counts[key] : null;
+        });
+        const dominantClasses = {
+            p: getDominantClass(stats.p),
+            f: getDominantClass(stats.f),
+            c: getDominantClass(stats.c),
+            cal: getDominantClass(stats.cal)
+        };
+
+        days.forEach(day => {
+            const norm = getNormForDay(day.type);
+            let tr = document.createElement('tr');
+            tr.innerHTML += `<td>${day.date}</td><td>${day.day}</td><td>${day.type}</td>`;
+            ['p','f','c','cal'].forEach(key => {
+                let raw = day.total[key] || '';
+                let val = parseVal(raw);
+                let target = norm ? norm[key] : null;
+                let cls = getDeviationClass(val, target);
+                let display = raw || (val !== null ? val : '—');
+                let approx = raw.includes('~') ? 'approx' : '';
+                tr.innerHTML += `<td class="${cls} ${approx}">${display}</td>`;
+            });
+            tr.innerHTML += `<td>${day.normDisplay || ''}</td>`;
+            tbody.appendChild(tr);
+        });
+
+        let footerTr = document.createElement('tr');
+        footerTr.classList.add('summary-footer');
+        footerTr.innerHTML = `<td colspan="3" style="text-align:right;">📈 Среднее за период</td>`;
+        ['p','f','c','cal'].forEach(key => {
+            let avg = averages[key];
+            let domClass = dominantClasses[key];
+            let display = avg !== null ? avg.toFixed(1) : '—';
+            footerTr.innerHTML += `<td class="${domClass}">${display}</td>`;
+        });
+        if (counts.p > 0 || counts.f > 0 || counts.c > 0 || counts.cal > 0) {
+            const pNorm = avgNorms.p !== null ? avgNorms.p.toFixed(1) : '—';
+            const fNorm = avgNorms.f !== null ? avgNorms.f.toFixed(1) : '—';
+            const cNorm = avgNorms.c !== null ? avgNorms.c.toFixed(1) : '—';
+            const calNorm = avgNorms.cal !== null ? avgNorms.cal.toFixed(0) : '—';
+            footerTr.innerHTML += `<td style="background:transparent;">${pNorm}/${fNorm}/${cNorm}/${calNorm}</td>`;
+        } else {
+            footerTr.innerHTML += `<td class="nodata">—</td>`;
+        }
+        tbody.appendChild(footerTr);
+    }
+
+    function renderAll() { renderJournal(); renderSummary(); }
+
+    function switchTab(tab) {
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(div => div.classList.remove('active'));
+        if (tab === 'journal') {
+            document.querySelector('.tab-btn:nth-child(1)').classList.add('active');
+            document.getElementById('tab-journal').classList.add('active');
+        } else {
+            document.querySelector('.tab-btn:nth-child(2)').classList.add('active');
+            document.getElementById('tab-summary').classList.add('active');
+        }
+    }
+
+    function addData() {
+        const textarea = document.getElementById('excelInput');
+        const rawText = textarea.value.trim();
+        if (!rawText) { alert('Вставьте данные в поле перед добавлением.'); return; }
+        const parsedDays = parseInputData(rawText);
+        if (parsedDays.length === 0) {
+            alert('Не удалось распознать ни одной строки. Проверьте формат.');
+            return;
+        }
+        for (let newDay of parsedDays) {
+            const idx = days.findIndex(d => d.date === newDay.date);
+            if (idx !== -1) days[idx] = newDay;
+            else days.push(newDay);
+        }
+        days.sort((a, b) => {
+            const [d1, m1] = a.date.split('.').map(Number);
+            const [d2, m2] = b.date.split('.').map(Number);
+            return (m1 - m2) || (d1 - d2);
+        });
+        renderAll();
+        textarea.value = '';
+        alert(`Готово! Добавлено/обновлено дней: ${parsedDays.length}.`);
+    }
+
+    function clearInput() { document.getElementById('excelInput').value = ''; }
+    function resetTable() {
+        if (confirm('Удалить все данные и вернуть пример (09.06–14.06)?')) {
+            days = JSON.parse(JSON.stringify(initialDays));
+            renderAll();
+            document.getElementById('excelInput').value = '';
+        }
+    }
+
+    // ---------- ЭКСПОРТ В EXCEL (ПОЛНОСТЬЮ РАБОЧИЙ) ----------
+    function exportToExcel() {
+        try {
+            const wb = XLSX.utils.book_new();
+            const COLORS = {
+                good: 'D5F5E3', warn: 'FEF9E7', bad: 'FADBD8', nodata: 'EBEDEF',
+                header: '34495E', dateGroup: 'F0F4F8', totalRow: 'ECF0F1', summaryFooter: 'F8F9FA', white: 'FFFFFF'
+            };
+            const thinBorder = {
+                top: { style: 'thin', color: { rgb: 'E1E8F0' } },
+                bottom: { style: 'thin', color: { rgb: 'E1E8F0' } },
+                left: { style: 'thin', color: { rgb: 'E1E8F0' } },
+                right: { style: 'thin', color: { rgb: 'E1E8F0' } }
+            };
+            function cellStyle(v, { fill, font = {}, alignment = {}, border = {} } = {}) {
+                const s = {};
+                if (fill) s.fill = { fgColor: { rgb: fill } };
+                if (font) s.font = Object.assign({}, font);
+                if (alignment) s.alignment = alignment;
+                if (border) s.border = border;
+                return { v, s };
+            }
+
+            // ------------------ ЛИСТ 1: ДНЕВНОЙ ЖУРНАЛ ------------------
+            const wsJournal = {};
+            const journalHeaders = ['Дата','День','Тип','Приём','Продукты','Белки','Жиры','Углеводы','Калории','Норма (цель)'];
+            // Добавляем заголовки
+            XLSX.utils.sheet_add_aoa(wsJournal, [journalHeaders], { origin: 'A1' });
+            // Стилизуем заголовки
+            journalHeaders.forEach((h, i) => {
+                const cellRef = XLSX.utils.encode_cell({c:i, r:0});
+                wsJournal[cellRef].s = {
+                    fill: { fgColor: { rgb: COLORS.header } },
+                    font: { color: 'FFFFFF', bold: true },
+                    alignment: { horizontal: 'center' },
+                    border: thinBorder
+                };
+            });
+
+            let rowIdx = 1;
+            const journalMerges = [];
+
+            days.forEach(day => {
+                const norm = getNormForDay(day.type);
+                const startRow = rowIdx;
+
+                // Строки приёмов
+                day.meals.forEach(meal => {
+                    const rowData = [
+                        day.date, day.day, day.type, meal.meal, meal.food,
+                        meal.p || '', meal.f || '', meal.c || '', meal.cal || '', ''
+                    ];
+                    XLSX.utils.sheet_add_aoa(wsJournal, [rowData], { origin: {c:0, r: rowIdx} });
+                    // Стилизация
+                    for (let c = 0; c <= 9; c++) {
+                        const cellRef = XLSX.utils.encode_cell({c, r: rowIdx});
+                        const cell = wsJournal[cellRef];
+                        cell.s = { border: thinBorder };
+                        if (c < 3) {
+                            cell.s.fill = { fgColor: { rgb: COLORS.dateGroup } };
+                            cell.s.font = { bold: true };
+                            cell.s.alignment = { horizontal: 'center' };
+                        } else if (c >= 5 && c <= 8) {
+                            const key = ['p','f','c','cal'][c-5];
+                            const raw = meal[key] || '';
+                            const approx = raw.includes('~');
+                            const isEmpty = raw === '' || raw.toLowerCase().includes('нет данных');
+                            cell.s.fill = { fgColor: { rgb: isEmpty ? COLORS.nodata : COLORS.white } };
+                            cell.s.font = { italic: approx };
+                            cell.s.alignment = { horizontal: 'center' };
+                        }
+                    }
+                    rowIdx++;
+                });
+
+                // Итого
+                const totalRowData = [
+                    day.date, day.day, day.type, 'ИТОГО', '',
+                    day.total.p || '', day.total.f || '', day.total.c || '', day.total.cal || '', day.normDisplay || ''
+                ];
+                XLSX.utils.sheet_add_aoa(wsJournal, [totalRowData], { origin: {c:0, r: rowIdx} });
+                // Стилизация итоговой строки
+                for (let c = 0; c <= 9; c++) {
+                    const cellRef = XLSX.utils.encode_cell({c, r: rowIdx});
+                    const cell = wsJournal[cellRef];
+                    cell.s = { border: thinBorder, font: { bold: true } };
+                    if (c < 3) {
+                        cell.s.fill = { fgColor: { rgb: COLORS.dateGroup } };
+                        cell.s.alignment = { horizontal: 'center' };
+                    } else if (c === 3) {
+                        cell.s.alignment = { horizontal: 'right' };
+                    } else if (c >= 5 && c <= 8) {
+                        const key = ['p','f','c','cal'][c-5];
+                        const raw = day.total[key] || '';
+                        const val = parseVal(raw);
+                        const target = norm ? norm[key] : null;
+                        const cls = getDeviationClass(val, target);
+                        const approx = raw.includes('~');
+                        cell.s.fill = { fgColor: { rgb: COLORS[cls] || COLORS.white } };
+                        cell.s.font = { bold: true, italic: approx };
+                        cell.s.alignment = { horizontal: 'center' };
+                    }
+                }
+                // Объединение для ИТОГО (столбцы D и E, индексы 3 и 4)
+                journalMerges.push({ s: {c:3, r: rowIdx}, e: {c:4, r: rowIdx} });
+                rowIdx++;
+
+                // Объединение даты, дня и типа для всего дня
+                if (day.meals.length + 1 > 1) {
+                    const endRow = startRow + day.meals.length;
+                    journalMerges.push({ s: {c:0, r: startRow}, e: {c:0, r: endRow} });
+                    journalMerges.push({ s: {c:1, r: startRow}, e: {c:1, r: endRow} });
+                    journalMerges.push({ s: {c:2, r: startRow}, e: {c:2, r: endRow} });
+                }
+            });
+
+            wsJournal['!merges'] = journalMerges;
+            wsJournal['!cols'] = [
+                { wch: 8 }, { wch: 5 }, { wch: 14 }, { wch: 10 }, { wch: 40 },
+                { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 20 }
+            ];
+            XLSX.utils.book_append_sheet(wb, wsJournal, 'Дневной журнал');
+
+            // ------------------ ЛИСТ 2: СВОДКА ИТОГОВ ------------------
+            const wsSummary = {};
+            const summaryHeaders = ['Дата','День','Тип','Белки','Жиры','Углеводы','Калории','Норма (цель)'];
+            XLSX.utils.sheet_add_aoa(wsSummary, [summaryHeaders], { origin: 'A1' });
+            summaryHeaders.forEach((h, i) => {
+                const cellRef = XLSX.utils.encode_cell({c:i, r:0});
+                wsSummary[cellRef].s = {
+                    fill: { fgColor: { rgb: COLORS.header } },
+                    font: { color: 'FFFFFF', bold: true },
+                    alignment: { horizontal: 'center' },
+                    border: thinBorder
+                };
+            });
+
+            let sRow = 1;
+            const stats = {
+                p: { good:0, warn:0, bad:0, nodata:0, total:0, sum:0, normSum:0 },
+                f: { good:0, warn:0, bad:0, nodata:0, total:0, sum:0, normSum:0 },
+                c: { good:0, warn:0, bad:0, nodata:0, total:0, sum:0, normSum:0 },
+                cal: { good:0, warn:0, bad:0, nodata:0, total:0, sum:0, normSum:0 }
+            };
+
+            days.forEach(day => {
+                const norm = getNormForDay(day.type);
+                const rowData = [day.date, day.day, day.type];
+                ['p','f','c','cal'].forEach(key => {
+                    const raw = day.total[key] || '';
+                    rowData.push(raw || (parseVal(raw) !== null ? parseVal(raw) : '—'));
+                });
+                rowData.push(day.normDisplay || '');
+                XLSX.utils.sheet_add_aoa(wsSummary, [rowData], { origin: {c:0, r: sRow} });
+                // Стилизация
+                for (let c = 0; c <= 7; c++) {
+                    const cellRef = XLSX.utils.encode_cell({c, r: sRow});
+                    const cell = wsSummary[cellRef];
+                    cell.s = { border: thinBorder };
+                    if (c >= 3 && c <= 6) {
+                        const key = ['p','f','c','cal'][c-3];
+                        const raw = day.total[key] || '';
+                        const val = parseVal(raw);
+                        const target = norm ? norm[key] : null;
+                        const cls = getDeviationClass(val, target);
+                        const approx = raw.includes('~');
+                        cell.s.fill = { fgColor: { rgb: COLORS[cls] || COLORS.white } };
+                        cell.s.font = { italic: approx };
+                        cell.s.alignment = { horizontal: 'center' };
+                        stats[key][cls]++;
+                        if (val !== null && norm) {
+                            stats[key].total++;
+                            stats[key].sum += val;
+                            stats[key].normSum += norm[key];
+                        }
+                    }
+                }
+                sRow++;
+            });
+
+            // Строка "Среднее за период"
+            const footerRowData = ['📈 Среднее за период', '', ''];
+            ['p','f','c','cal'].forEach(key => {
+                const avg = stats[key].total > 0 ? stats[key].sum / stats[key].total : null;
+                const dominant = getDominantClass(stats[key]);
+                const display = avg !== null ? avg.toFixed(1) : '—';
+                footerRowData.push(display);
+            });
+            const pNorm = stats.p.total > 0 ? (stats.p.normSum / stats.p.total).toFixed(1) : '—';
+            const fNorm = stats.f.total > 0 ? (stats.f.normSum / stats.f.total).toFixed(1) : '—';
+            const cNorm = stats.c.total > 0 ? (stats.c.normSum / stats.c.total).toFixed(1) : '—';
+            const calNorm = stats.cal.total > 0 ? (stats.cal.normSum / stats.cal.total).toFixed(0) : '—';
+            footerRowData.push(`${pNorm}/${fNorm}/${cNorm}/${calNorm}`);
+
+            XLSX.utils.sheet_add_aoa(wsSummary, [footerRowData], { origin: {c:0, r: sRow} });
+            // Стилизация строки средних
+            for (let c = 0; c <= 7; c++) {
+                const cellRef = XLSX.utils.encode_cell({c, r: sRow});
+                const cell = wsSummary[cellRef];
+                cell.s = { border: thinBorder, font: { bold: true } };
+                if (c === 0) cell.s.alignment = { horizontal: 'right' };
+                if (c >= 3 && c <= 6) {
+                    const key = ['p','f','c','cal'][c-3];
+                    const dominant = getDominantClass(stats[key]);
+                    cell.s.fill = { fgColor: { rgb: COLORS[dominant] || COLORS.nodata } };
+                    cell.s.alignment = { horizontal: 'center' };
+                }
+                if (c === 7) cell.s.fill = { fgColor: { rgb: COLORS.white } };
+            }
+            // Объединение A-C в строке средних
+            wsSummary['!merges'] = [{ s: {c:0, r: sRow}, e: {c:2, r: sRow} }];
+            wsSummary['!cols'] = [
+                { wch: 8 }, { wch: 5 }, { wch: 14 }, { wch: 8 }, { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 20 }
+            ];
+            XLSX.utils.book_append_sheet(wb, wsSummary, 'Сводка итогов');
+
+            // Сохраняем файл
+            XLSX.writeFile(wb, 'дневник_питания.xlsx');
+        } catch (error) {
+            alert('Ошибка при создании Excel-файла: ' + error.message);
+            console.error(error);
+        }
+    }
+
+    // Инициализация
+    days = JSON.parse(JSON.stringify(initialDays));
+    renderAll();
+</script>
+</body>
+</html>
